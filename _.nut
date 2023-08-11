@@ -11,7 +11,7 @@ if (!EventBus) {
 	bDiscardCosmetics <- function() { return true }
 	
 	// hPlayer : iTeam
-	byPlayers <- {}
+	byPlayers = {}
 	
 	/*
 		order is per ETFClass
@@ -37,86 +37,88 @@ if (!EventBus) {
 	// this is only added if `bDiscardCosmetics` returns true
 	color :
 	*/
-	list <- []
-}
+	list = []
 
-::Teams.bRidWearables <- function() { return true }
+	bRidWearables = function() { return true }
 
-::Teams.FindTeamIndex <- function(hPlayer) {
-	if (hPlayer in this.byPlayers)
-		return this.byPlayers[hPlayer]
-	else {
-		error(format("player %s is not in a team", hPlayer))
-		return null
+	FindTeamIndex = function(hPlayer) {
+		if (hPlayer in this.byPlayers)
+			return this.byPlayers[hPlayer]
+		else {
+			error(format("player %s is not in a team", hPlayer))
+			return null
+		}
 	}
-}
 
-// moves all players to team `iTeam`.
-::Teams.ExodusToTeam <- function(iTeam) {
-	for (local i = 1; i <= MaxPlayers ; i++)
-	{
+	// moves all players to team `iTeam`.
+		ExodusToTeam = function(iTeam) {
+		for (local i = 1; i <= MaxPlayers ; i++)
+		{
+		    local player = PlayerInstanceFromIndex(i)
+		    if (player == null) continue
+		    player.MoveToTeam(iTeam)
+		}	
+	}
+
+	// partitions (e.g. subdivides) native team into custom teams
+	// based on `iPlayersInTeam`.
+	partitionCTFTeamToCustom = function(iTeam) {
+		if (iTeam > 3) {
+			printl("No can do. we only subdivide native teams.")
+			return 1
+		}
+		// iterate throughout players and move those in team `iTeam` to custom team
+		::MaxPlayers <- MaxClients().tointeger();
+			
+		for (local i = 1; i <= MaxPlayers ; i++) {
 	    local player = PlayerInstanceFromIndex(i)
 	    if (player == null) continue
-	    player.MoveToTeam(iTeam)
-	}	
-}
-
-// partitions (e.g. subdivides) native team into custom teams
-// based on `iPlayersInTeam`.
-::Teams.partitionCTFTeamToCustom <- function(iTeam) {
-	if (iTeam > 3) {
-		printl("No can do. we only subdivide native teams.")
-		return 1
+	    if (player.GetTeam() == iTeam) {
+	    	if (iPlayersMoved >= iPlayersPerTeam) {
+	    		iPlayersMoved = 0
+	    		iCurrentTeam++
+	    	}
+	    	movePlayerToTeam(player, 4+iCurrentTeam)
+	    	iPlayersMoved++
+	    }
+		}	
 	}
-	// iterate throughout players and move those in team `iTeam` to custom team
-	::MaxPlayers <- MaxClients().tointeger();
-		
-	for (local i = 1; i <= MaxPlayers ; i++) {
-    local player = PlayerInstanceFromIndex(i)
-    if (player == null) continue
-    if (player.GetTeam() == iTeam) {
-    	if (iPlayersMoved >= iPlayersPerTeam) {
-    		iPlayersMoved = 0
-    		iCurrentTeam++
-    	}
-    	movePlayerToTeam(player, 4+iCurrentTeam)
-    	iPlayersMoved++
-    }
-	}	
+
+	// Adds new custom team.
+	New = function() {
+		local iNewTeam = teams.len()
+		list.append({
+			players = []
+		})
+		if (mapVars.br_team_highlight == 0)
+			list[iNewTeam].color <- RandomInt(0,255)+" "+RandomInt(0,255)+" "+RandomInt(0,255);
+	}
+
+	// Colors player with team color
+	// ( will be called only if `bDiscardCosmetics` returns true. )
+	ColorPlayer = function(player) {
+		local color = Teams.list[FindTeamIndex(player)].color
+		if (color == null)
+			return
+		player.__KeyValueFromString("rendercolor", color)
+	}
+
+	// Adds a player to a team that's missing a member.
+	QueuePlayer = function(hTargetPlayer) {
+		// if the last team is full, create new team
+		if ((list.len() == 0) || (list[list.len() - 1].players.len() >= iPlayersPerTeam()))
+	 		createCustomTeam()
+		if (!(hTargetPlayer in byPlayers))
+			hTargetPlayer.MoveToTeam( 3 + teams.len() )
+	}
+
+	Remove = function(hPlayer) {
+		local idx = list[byPlayers[p]].players.find(p)
+		list[byPlayers[p]].players.remove(idx)
+	}
 }
 
-// Adds new custom team.
-::Teams.New() <- function() {
-	local iNewTeam = teams.len()
-	list.append({
-		players = []
-	})
-	if (mapVars.br_team_highlight == 0)
-		list[iNewTeam].color <- RandomInt(0,255)+" "+RandomInt(0,255)+" "+RandomInt(0,255);
-}
-
-// Colors player with team color
-// ( will be called only if `bDiscardCosmetics` returns true. )
-::Teams.ColorPlayer <- function(player) {
-	local color = Teams.list[FindTeamIndex(player)].color
-	if (color == null)
-		return
-	player.__KeyValueFromString("rendercolor", color)
-}
-
-// Adds a player to a team that's missing a member.
-::Teams.QueuePlayer <- function(hTargetPlayer) {
-	// if the last team is full, create new team
-	if ((list.len() == 0) || (list[list.len() - 1].players.len() >= iPlayersPerTeam()))
- 		createCustomTeam()
-	if (!(hTargetPlayer in byPlayers))
-		hTargetPlayer.MoveToTeam( 3 + teams.len() )
-}
-
-::Teams.Remove(hPlayer) {
-	local idx = teams[teamsByPlayers[p]].players.find(p)
-	teams[teamsByPlayers[p]].players.remove(idx)
-}
+::Teams.
 
 // Forcibly moves a player to a subteam
 ::CTFPlayer.MoveToTeam <- function(iTeam) {
