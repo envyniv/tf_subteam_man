@@ -40,6 +40,8 @@ if (!EventBus) {
 	list <- []
 }
 
+::Teams.bRidWearables <- function() { return true }
+
 ::Teams.FindTeamIndex <- function(hPlayer) {
 	if (hPlayer in this.byPlayers)
 		return this.byPlayers[hPlayer]
@@ -134,7 +136,7 @@ if (!EventBus) {
 	// color player
 	Teams.ColorPlayer(this)
 	// we remove the cosmetics to ensure new team color
-	if (mapVars.vscript_subteam_rid_wearables)
+	if (Teams.bRidWearables())
 		this.DiscardCosmetics()
 }
 
