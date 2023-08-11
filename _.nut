@@ -1,19 +1,67 @@
-//array of tables
-::teams <- []
-//table of <playerid>=<team number>
-::teamsByPlayers <- {}
 
+if (!EventBus) {
+	printl("This script requires EventBus!")
+	return
+}
 
-function moveEveryoneToTeam(iTeam) {
+::Teams <- {
+	// these functions need to be overwritten by your script
+	iPlayersInTeam <- function() { return 4 }
+	iTeamHiglight <- function() { return true }
+	bDiscardCosmetics <- function() { return true }
+	
+	// hPlayer : iTeam
+	byPlayers <- {}
+	
+	/*
+		order is per ETFClass
+		------------------
+		ETFClass
+		Name 	Value
+		TF_CLASS_UNDEFINED 	0
+		TF_CLASS_SCOUT 	1
+		TF_CLASS_SNIPER 	2
+		TF_CLASS_SOLDIER 	3
+		TF_CLASS_DEMOMAN 	4
+		TF_CLASS_MEDIC 	5
+		TF_CLASS_HEAVYWEAPONS 	6
+		TF_CLASS_PYRO 	7
+		TF_CLASS_SPY 	8
+		TF_CLASS_ENGINEER 	9
+		TF_CLASS_CIVILIAN 	10
+		TF_CLASS_COUNT_ALL 	11
+		TF_CLASS_RANDOM 	12 
+	classes : [ 0, 0, 1, 0, 3, 4, 8, 2, 1, 0, 0, 0, 0 ]
+	// array of player handles, max is
+	players : []
+	// this is only added if `bDiscardCosmetics` returns true
+	color :
+	*/
+	list <- []
+}
+
+::Teams.FindTeamIndex <- function(hPlayer) {
+	if (hPlayer in this.byPlayers)
+		return this.byPlayers[hPlayer]
+	else {
+		error(format("player %s is not in a team", hPlayer))
+		return null
+	}
+}
+
+// moves all players to team `iTeam`.
+::Teams.ExodusToTeam <- function(iTeam) {
 	for (local i = 1; i <= MaxPlayers ; i++)
 	{
 	    local player = PlayerInstanceFromIndex(i)
 	    if (player == null) continue
-	    movePlayerToTeam(player, iTeam)
+	    player.MoveToTeam(iTeam)
 	}	
 }
 
-function partitionCTFTeamToCustom(iTeam) {
+// partitions (e.g. subdivides) native team into custom teams
+// based on `iPlayersInTeam`.
+::Teams.partitionCTFTeamToCustom <- function(iTeam) {
 	if (iTeam > 3) {
 		printl("No can do. we only subdivide native teams.")
 		return 1
@@ -35,30 +83,40 @@ function partitionCTFTeamToCustom(iTeam) {
 	}	
 }
 
-
-function createCustomTeam() {
+// Adds new custom team.
+::Teams.New() <- function() {
 	local iNewTeam = teams.len()
-	teams.append({
+	list.append({
 		players = []
 	})
 	if (mapVars.br_team_highlight == 0)
-		teams[iNewTeam].color <- RandomInt(0,255)+" "+RandomInt(0,255)+" "+RandomInt(0,255);
+		list[iNewTeam].color <- RandomInt(0,255)+" "+RandomInt(0,255)+" "+RandomInt(0,255);
 }
 
-::ColorPlayer <- function(player, sColor) {
-	player.__KeyValueFromString("rendercolor", sColor)
+// Colors player with team color
+// ( will be called only if `bDiscardCosmetics` returns true. )
+::Teams.ColorPlayer <- function(player) {
+	local color = Teams.list[FindTeamIndex(player)].color
+	if (color == null)
+		return
+	player.__KeyValueFromString("rendercolor", color)
 }
 
-::QueueToCustomTeam <- function(hTargetPlayer) {
+// Adds a player to a team that's missing a member.
+::Teams.QueuePlayer <- function(hTargetPlayer) {
 	// if the last team is full, create new team
-	if ((teams.len() == 0) || (teams[teams.len() - 1].players.len() >= iPlayersPerTeam()))
+	if ((list.len() == 0) || (list[list.len() - 1].players.len() >= iPlayersPerTeam()))
  		createCustomTeam()
-	if (!(hTargetPlayer in teamsByPlayers))
+	if (!(hTargetPlayer in byPlayers))
 		hTargetPlayer.MoveToTeam( 3 + teams.len() )
 }
 
-//function TakeOverRecord
+::Teams.Remove(hPlayer) {
+	local idx = teams[teamsByPlayers[p]].players.find(p)
+	teams[teamsByPlayers[p]].players.remove(idx)
+}
 
+// Forcibly moves a player to a subteam
 ::CTFPlayer.MoveToTeam <- function(iTeam) {
 	if (iTeam < 4) {
 		this.ForceChangeTeam(iTeam, true)
@@ -68,11 +126,13 @@ function createCustomTeam() {
 	this.ForceChangeTeam(2, true)
 	// add to custom team
 	local iCTeam = iTeam-4
-	teams[iCTeam].players.append(this);
-	teamsByPlayers[this] <- iCTeam
-	if (this.GetPlayerClass() == Constants.ETFClass.TF_CLASS_MEDIC)
-		teams[iCTeam].hasMedic <- 0
-	ColorPlayer(this, teams[iCTeam].color)
+	Teams.list[iCTeam].players.append(this);
+	// add to quick lookup table
+	Teams.byPlayers[this] <- iCTeam
+	// increment class counter
+	Teams.list[iCTeam].classes[this.GetPlayerClass()]++
+	// color player
+	Teams.ColorPlayer(this)
 	// we remove the cosmetics to ensure new team color
 	if (mapVars.vscript_subteam_rid_wearables)
 		this.DiscardCosmetics()
@@ -84,45 +144,17 @@ function createCustomTeam() {
 // Event hooks
 //------------------------------
 
-
-function OnGameEvent_teamplay_round_active(params) {
-	//marked for death to every player
-	
-	for (local i = 1; i <= MaxPlayers ; i++) {
-    local player = PlayerInstanceFromIndex(i)
-    if (player == null) continue
-    player.AddCondEx(30, mapVars.br_marked_time, null)
-    player.ClearWeapons()
-	}
-	//local lsh = GetListenServerHost()
-	//lsh.Weapon_Drop(NetProps.GetPropEntityArray(lsh, "m_hMyWeapons", 0))
-}
-
-function OnGameEvent_player_disconnect(params) {
+EventBus.Listen("player_disconnect", function(params) {
 	local p = GetPlayerFromUserID(params.userid);
-	local idx = teams[teamsByPlayers[p]].players.find(p)
-	teams[teamsByPlayers[p]].players.remove(idx)
-}
+	Teams.Remove(p)
+}, this)
 
-function OnGameEvent_player_death(params) {
+/*
+EventBus.Listen("OnTakeDamage", function(params) {
 	local p = GetPlayerFromUserID(params.userid);
-	if (
-		(p != null) &&
-		("hasMedic" in teams[teamsByPlayers[p]]) &&
-		(p.GetPlayerClass() != Constants.ETFClass.TF_CLASS_MEDIC ))
-		SpawnReviveMarker(p)
-}
-
-function OnGameEvent_player_spawn(params) {
-	local p = GetPlayerFromUserID(params.userid);
-	if (p != null) {
-		if (params.team & 2) {
-			QueueToCustomTeam(p)
-			hideHUDPlayersTop(p)
-		}
-	}
-}
-
+	Teams.Remove(p)
+}, this)
+*/
 function OnScriptHook_OnTakeDamage(params) {
 /*
 	const_entity 	handle 	The entity which took damage
